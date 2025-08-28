@@ -61,10 +61,343 @@
     <div id="app">
       <!-- Replace the placeholder below with your Canvas-generated HTML (controls, forms, etc.).
            If your Canvas has separate JS/CSS, paste them into app.js/style.css and link them here. -->
-      <div class="placeholder">
-        <p>🚀 Paste your app's HTML here or mount into <code>#app</code> via <code>app.js</code>.</p>
-        <p class="small">Mobile-friendly meta tags + responsive styles are already included.</p>
+      import React, { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+
+// BIG TICKET — Contribution Splitter (Mobile Friendly + PDF Export)
+// Fully responsive: auto-fit tables and inputs on mobile screens.
+
+const AED_FMT = new Intl.NumberFormat("en-AE", {
+  style: "currency",
+  currency: "AED",
+  minimumFractionDigits: 2,
+});
+const INR_FMT = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+});
+const PHP_FMT = new Intl.NumberFormat("en-PH", {
+  style: "currency",
+  currency: "PHP",
+  minimumFractionDigits: 2,
+});
+
+const TICKET_COST = 500; // AED
+
+// ===== Amount to words (English) with currency units =====
+const SMALL = [
+  "zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"
+];
+const TENS = ["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];
+const SCALE = ["","thousand","million","billion","trillion"];
+
+function chunkToWords(n){
+  let out = [];
+  if(n>=100){
+    out.push(SMALL[Math.floor(n/100)],"hundred");
+    n %= 100;
+  }
+  if(n>=20){
+    out.push(TENS[Math.floor(n/10)] + (n%10?"-"+SMALL[n%10]:""));
+  } else if(n>0){
+    out.push(SMALL[n]);
+  }
+  return out.join(" ");
+}
+
+function intToWords(num){
+  if(num===0) return "zero";
+  let words = [];
+  let i = 0;
+  while(num>0){
+    const chunk = num % 1000;
+    if(chunk){
+      const w = chunkToWords(chunk);
+      words.unshift(w + (SCALE[i]?" "+SCALE[i]:""));
+    }
+    num = Math.floor(num/1000);
+    i++;
+  }
+  return words.join(" ");
+}
+
+const CURRENCY_UNITS = {
+  AED: { major: "dirhams", minor: "fils" },
+  INR: { major: "rupees", minor: "paise" },
+  PHP: { major: "pesos", minor: "centavos" },
+};
+
+function amountToWords(value, currency){
+  const v = Number(value)||0;
+  const major = Math.floor(v);
+  const minor = Math.round((v - major) * 100);
+  const units = CURRENCY_UNITS[currency] || { major: "units", minor: "cents" };
+  const majorPart = intToWords(major) + " " + units.major;
+  const minorPart = minor ? " and " + intToWords(minor) + " " + units.minor : "";
+  return (major===0 && minor===0) ? "zero" : (majorPart + minorPart);
+}
+
+function Pill({ children }) {
+  return (
+    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs sm:text-sm text-gray-100 whitespace-nowrap">
+      {children}
+    </span>
+  );
+}
+
+function Button({ children, variant = "default", className = "", ...props }) {
+  const base =
+    "rounded-xl border px-2 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium backdrop-blur transition active:scale-[.98]";
+  const styles = {
+    default: "border-white/10 bg-gray-800 hover:bg-gray-700 text-gray-100",
+    primary:
+      "border-transparent bg-gradient-to-b from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 text-white shadow",
+    danger:
+      "border-transparent bg-gradient-to-b from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow",
+  };
+  return (
+    <button className={`${base} ${styles[variant]} ${className}`} {...props}>
+      {children}
+    </button>
+  );
+}
+
+export default function BigTicketSplitter() {
+  const [drawDate, setDrawDate] = useState("");
+  const [winningAmountAED, setWinningAmountAED] = useState(0);
+  const [rows, setRows] = useState([{ name: "", amount: "", payoutCurrency: "AED" }]);
+  const [inrPerAed, setInrPerAed] = useState(22.5);
+  const [phpPerAed, setPhpPerAed] = useState(15.0);
+
+  const captureRef = useRef(null);
+
+  useEffect(() => {
+    if (!drawDate) setDrawDate(new Date().toISOString().slice(0, 10));
+  }, [drawDate]);
+
+  const totals = useMemo(() => {
+    const amounts = rows.map((r) => Number(r.amount) || 0);
+    const total = amounts.reduce((a, b) => a + b, 0);
+    const diff = total - TICKET_COST;
+    return { total, diff, remaining: Math.max(0, TICKET_COST - total), count: rows.length };
+  }, [rows]);
+
+  function updateRow(i, patch) {
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function addRow() {
+    setRows((rs) => [...rs, { name: "", amount: "", payoutCurrency: "AED" }]);
+  }
+  function removeRow(i) {
+    setRows((rs) => rs.filter((_, idx) => idx !== i));
+  }
+
+  function percentOfTicket(amountAED) {
+    const pct = (amountAED / TICKET_COST) * 100;
+    return Number.isFinite(pct) ? pct : 0;
+  }
+  function shareIfWinAED(amountAED) {
+    return (percentOfTicket(amountAED) / 100) * (Number(winningAmountAED) || 0);
+  }
+  function formatShare(valueAED, currency) {
+    if (currency === "INR") return INR_FMT.format((valueAED || 0) * (Number(inrPerAed) || 0));
+    if (currency === "PHP") return PHP_FMT.format((valueAED || 0) * (Number(phpPerAed) || 0));
+    return AED_FMT.format(valueAED || 0);
+  }
+
+  async function exportToPDF() {
+    if (!captureRef.current) return;
+
+    // Create a clone to ensure full-width capture and stable layout
+    const node = captureRef.current;
+
+    const canvas = await html2canvas(node, {
+      scale: window.devicePixelRatio || 2,
+      backgroundColor: "#111827", // Tailwind neutral-900
+      useCORS: true,
+      logging: false,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth; // fit to width
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+    position -= pageHeight;
+
+    while (heightLeft > 0) {
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      position -= pageHeight;
+    }
+
+    const fileName = `BigTicket_${drawDate || "draw"}.pdf`;
+    pdf.save(fileName);
+  }
+
+  return (
+    <div className="min-h-screen bg-black text-gray-100">
+      <div className="mx-auto max-w-5xl p-3 sm:p-5">
+        <header className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
+          <div className="flex flex-wrap items-center gap-2 font-extrabold text-base sm:text-lg tracking-wide">
+            <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-md bg-gray-700" />
+            <span>BIG TICKET — Splitter</span>
+            <span className="rounded-full bg-gradient-to-r from-gray-700 to-gray-800 px-2 py-0.5 text-[10px] sm:text-xs font-bold text-white/90">
+              AED 500 Ticket
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+            <Button onClick={() => alert('Save coming soon')}>Save</Button>
+            <Button onClick={() => alert('Load coming soon')}>Load</Button>
+            <Button variant="danger" onClick={() => setRows([{ name: "", amount: "", payoutCurrency: "AED" }])}>Clear</Button>
+            <Button variant="primary" className="w-full sm:w-auto" onClick={exportToPDF}>Export PDF</Button>
+          </div>
+        </header>
+
+        {/* Capture Area for PDF */}
+        <section ref={captureRef} className="rounded-2xl border border-white/10 bg-neutral-900 p-3 sm:p-4 shadow-xl backdrop-blur space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <label className="flex flex-col gap-1 flex-1">
+              <span className="text-xs sm:text-sm text-gray-300">Draw Date</span>
+              <input
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-1 sm:px-3 sm:py-2 outline-none w-full"
+                type="date"
+                value={drawDate}
+                onChange={(e) => setDrawDate(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1 flex-1">
+              <span className="text-xs sm:text-sm text-gray-300">Winning Amount (AED)</span>
+              <input
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-1 sm:px-3 sm:py-2 outline-none w-full"
+                type="number"
+                min={0}
+                step={0.01}
+                value={winningAmountAED}
+                onChange={(e) => setWinningAmountAED(Number(e.target.value) || 0)}
+              />
+              <span className="text-[10px] sm:text-xs text-gray-400 italic mt-1 min-h-[1rem]">
+                {winningAmountAED ? amountToWords(winningAmountAED, "AED") : ""}
+              </span>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs sm:text-sm text-gray-300">INR per 1 AED</span>
+              <input
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-1 sm:px-3 sm:py-2 outline-none"
+                type="number"
+                min={0}
+                step={0.01}
+                value={inrPerAed}
+                onChange={(e) => setInrPerAed(Number(e.target.value) || 0)}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs sm:text-sm text-gray-300">PHP per 1 AED</span>
+              <input
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-1 sm:px-3 sm:py-2 outline-none"
+                type="number"
+                min={0}
+                step={0.01}
+                value={phpPerAed}
+                onChange={(e) => setPhpPerAed(Number(e.target.value) || 0)}
+              />
+            </label>
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="min-w-[600px] sm:min-w-full mb-2 grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 sm:gap-2 text-gray-200 text-xs sm:text-sm">
+              <div className="font-semibold">Participant</div>
+              <div className="text-right font-semibold">Contrib</div>
+              <div className="text-center font-semibold">% of 500</div>
+              <div className="text-right font-semibold">Share</div>
+              <div className="text-right font-semibold">Currency</div>
+              <div className="text-right font-semibold">Cumul (AED)</div>
+              <div className="text-center font-semibold">Action</div>
+            </div>
+
+            <div className="space-y-2 text-xs sm:text-sm">
+              {rows.map((r, i) => {
+                const amtAED = Number(r.amount) || 0;
+                const pct = percentOfTicket(amtAED);
+                const shareAED = shareIfWinAED(amtAED);
+                const convertedShare = r.payoutCurrency === "INR"
+                  ? shareAED * (Number(inrPerAed) || 0)
+                  : r.payoutCurrency === "PHP"
+                  ? shareAED * (Number(phpPerAed) || 0)
+                  : shareAED;
+                const shareWords = amountToWords(convertedShare, r.payoutCurrency);
+                return (
+                  <div key={i} className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 sm:gap-2">
+                    <input
+                      className="rounded-xl border border-white/10 bg-white/5 px-2 py-1 outline-none"
+                      placeholder="Name"
+                      value={r.name}
+                      onChange={(e) => updateRow(i, { name: e.target.value })}
+                    />
+                    <input
+                      className="rounded-xl border border-white/10 bg-white/5 px-2 py-1 text-right outline-none w-16"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="0.00"
+                      value={r.amount}
+                      onChange={(e) => updateRow(i, { amount: e.target.value === "" ? "" : Number(e.target.value) })}
+                    />
+                    <Pill>{pct.toFixed(2)}%</Pill>
+                    <div className="flex flex-col items-end leading-tight">
+                      <Pill>{formatShare(shareAED, r.payoutCurrency)}</Pill>
+                      <span className="text-[9px] sm:text-[11px] text-gray-400 italic">{shareAED ? shareWords : ""}</span>
+                    </div>
+                    <select
+                      className="rounded-xl border border-white/10 bg-white/5 px-1 py-0.5"
+                      value={r.payoutCurrency}
+                      onChange={(e) => updateRow(i, { payoutCurrency: e.target.value })}
+                    >
+                      <option value="AED">AED</option>
+                      <option value="INR">INR</option>
+                      <option value="PHP">PHP</option>
+                    </select>
+                    <Pill>{AED_FMT.format(amtAED)}</Pill>
+                    <div className="text-center">
+                      <Button variant="danger" onClick={() => removeRow(i)}>✕</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-3 flex justify-stretch sm:justify-end">
+            <Button variant="primary" className="w-full sm:w-auto" onClick={addRow}>+ Add Participant</Button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2 text-xs sm:text-sm">
+            <Pill>Participants: {totals.count}</Pill>
+            <Pill>Total: {AED_FMT.format(totals.total)}</Pill>
+            <Pill>Remaining: {AED_FMT.format(totals.remaining)}</Pill>
+            <Pill>Winning: {AED_FMT.format(winningAmountAED || 0)}</Pill>
+          </div>
+        </section>
       </div>
+    </div>
+  );
+}
+
     </div>
   </div>
 
