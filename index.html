@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <title>My Canvas App</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="appicon.png" sizes="192x192">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Canvas App">
+  <link rel="apple-touch-icon" href="appicon.png">
+  <style>
+    /* Basic mobile-first reset and safe-area handling */
+    :root {
+      --bg:#0f0f10; --fg:#f2f2f2; --muted:#9aa0a6; --accent:#4da3ff;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+    }
+    body {
+      padding: max(env(safe-area-inset-top),16px) max(env(safe-area-inset-right),16px)
+               max(env(safe-area-inset-bottom),16px) max(env(safe-area-inset-left),16px);
+      display: grid; place-items: stretch; gap: 12px;
+    }
+    header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    h1 { font-size: clamp(18px, 4.5vw, 28px); margin: 0; }
+    .pill { padding: 8px 12px; border-radius: 999px; background:#1a1b1e; color: var(--muted); font-size: 14px; }
+    .card {
+      background:#15161a; border:1px solid #23252a; border-radius: 14px; padding: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .footer { text-align:center; color: var(--muted); font-size: 12px; }
+    button {
+      font-size: 16px; border:1px solid #2c2f36; background:#1d1f24; color: var(--fg);
+      padding: 12px 14px; border-radius: 10px; width: 100%;
+    }
+    a.button { display:inline-block; text-decoration:none; }
+    .accent { color: var(--accent); }
+    /* Make forms readable on iPhone */
+    input, select, textarea { width:100%; font-size:16px; background:#0f1115; color:#fff; border:1px solid #2c2f36; border-radius:10px; padding:10px 12px; }
+    label { display:block; margin:10px 0 6px; color:#c9cdd4; }
+    /* Canvas app mount area */
+    #app { display:block; min-height: 52vh; }
+    .placeholder {
+      border: 2px dashed #2c2f36; border-radius: 12px; padding: 20px; text-align:center; color: var(--muted);
+    }
+    .small { font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>My <span class="accent">Canvas</span> App</h1>
+    <span class="pill">PWA Ready</span>
+  </header>
+
+  <div class="card">
+    <div id="app">
+      <!-- Replace the placeholder below with your Canvas-generated HTML (controls, forms, etc.).
+           If your Canvas has separate JS/CSS, paste them into app.js/style.css and link them here. -->
+      <div class="placeholder">
+        <p>🚀 Paste your app's HTML here or mount into <code>#app</code> via <code>app.js</code>.</p>
+        <p class="small">Mobile-friendly meta tags + responsive styles are already included.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <button id="installBtn" hidden>➕ Add to Home Screen</button>
+    <p class="small">This site works offline after first load. You can install it on your iPhone Home Screen.</p>
+  </div>
+
+  <div class="footer">© 2025 • Starter shell to host your Canvas project</div>
+
+  <script src="app.js"></script>
+  <script>
+    // Register Service Worker for offline caching
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+    }
+
+    // iOS Add to Home Screen helper (custom prompt)
+    let deferredPrompt;
+    const installBtn = document.getElementById('installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.hidden = false;
+    });
+    installBtn?.addEventListener('click', async () => {
+      installBtn.hidden = true;
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+      }
+    });
+  </script>
+</body>
+</html>
